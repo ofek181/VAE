@@ -1,14 +1,16 @@
 """
 VAE model
 """
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class Model(nn.Module):
-    def __init__(self, latent_dim,device):
+    """
+    Implement the VAE model with BCE loss and KL
+    """
+    def __init__(self, latent_dim, device):
         """Initialize a VAE.
 
         Args:
@@ -39,29 +41,48 @@ class Model(nn.Module):
             nn.Sigmoid()
         )
 
-
-    def sample(self, sample_size , mu=None, logvar=None):
-        '''
-        :param sample_size: Number of samples
-        :param mu: z mean, None for prior (init with zeros)
-        :param logvar: z logstd, None for prior (init with zeros)
-        :return:
-        '''
-        if mu==None:
-            mu = torch.zeros((sample_size,self.latent_dim)).to(self.device)
-        if logvar == None:
-            logvar = torch.zeros((sample_size,self.latent_dim)).to(self.device)
-        #TODO
-
+    def sample(self, size):
+        """
+        :param size: size of the sample
+        :return: reconstructed images
+        """
+        with torch.no_grad():
+            x_sample = torch.rand((size, self.latent_dim)).to(self.device)
+            x_reconstruct = self.decoder(self.upsample(x_sample).view(-1, 64, 7, 7)).to(self.device)
+            return x_reconstruct
 
     def z_sample(self, mu, logvar):
-        #TODO
-        pass
+        """
+        :param mu: expectation of the distribution
+        :param logvar: log variance of the distribution
+        :return: vector of gaussian random variable with e=mu and sigma = std
+        """
+        std = torch.exp(logvar / 2)
+        eps = torch.rand_like(std).to(self.device)
+        return mu + eps * std
 
-    def loss(self,x,recon,mu,logvar):
-        #TODO
-        pass
+    @staticmethod
+    def loss(x, recon, mu, logvar):
+        """
+        :param x: original image
+        :param recon: reconstructed image
+        :param mu: expectation of the distribution
+        :param logvar: log variance of the distribution
+        :return: VAE loss (BCE + KL)
+        """
+        # calculate the KL divergence
+        KL = -1/2 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        # calculate the binary cross entropy loss
+        BCE = F.binary_cross_entropy(recon, x, reduction='sum')
+        return BCE + KL
 
     def forward(self, x):
-        #TODO
-        pass
+        """
+        :param x: original image
+        :return: forward pass of the VAE model
+        """
+        x_latent = self.encoder(x).view(-1, 64*7*7)
+        mu = self.mu(x_latent)
+        logvar = self.logvar(x_latent)
+        z = self.z_sample(mu=mu, logvar=logvar)
+        return self.decoder(self.upsample(z).view(-1, 64, 7, 7)), mu, logvar
